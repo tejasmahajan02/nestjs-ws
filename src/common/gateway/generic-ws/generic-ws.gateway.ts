@@ -1,19 +1,23 @@
 import { Logger, UseFilters, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JsonWebTokenError, JwtService, TokenExpiredError } from '@nestjs/jwt';
 import {
   ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
+  WsException,
+  WsResponse,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { WsAuthGuard } from './guards/ws-auth.guard';
 import { WsExceptionFilter } from './filters/ws-exception.filter';
+import { WsMessages } from './constants/ws.messages';
+import { Observable, from, map } from 'rxjs';
 
-@UseFilters(WsExceptionFilter)
 @UseGuards(WsAuthGuard)
 @WebSocketGateway({
   cors: {
@@ -69,16 +73,28 @@ export class GenericWsGateway
     client.emit('pong', { message: 'PONG' });
   }
 
+  @SubscribeMessage('events')
+  findAll(@MessageBody() data: any): Observable<WsResponse<number>> {
+    return from([1, 2, 3]).pipe(
+      map((item) => ({ event: 'events', data: item })),
+    );
+  }
+
+  @SubscribeMessage('identity')
+  async identity(@MessageBody() data: number): Promise<number> {
+    return data;
+  }
+
+  private getUserId(client: Socket): string | undefined {
+    return client?.data?.user?.email as string;
+  }
+
   // Authentication
   private async verifyUser(client: Socket): Promise<boolean | undefined> {
-    const token = this.getToken(client);
-    if (!token) {
-      client.emit('error', { message: 'Authentication token missing' });
-      client.disconnect();
-      return;
-    }
-
     try {
+      const token = this.getToken(client);
+      if (!token) throw new WsException(WsMessages.ERROR.MISSING_TOKEN);
+
       const payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
@@ -87,19 +103,20 @@ export class GenericWsGateway
       client.data.user = payload;
       return true;
     } catch (error) {
-      if (error.name === 'TokenExpiredError') {
-        client.emit('error', { message: 'Authentication token expired' });
-        client.disconnect();
-        return;
+      let message: string;
+      if (error instanceof WsException) {
+        message = error.getError().toString();
+      } else if (error instanceof TokenExpiredError) {
+        message = WsMessages.ERROR.EXPIRED_TOKEN;
+      } else if (error instanceof JsonWebTokenError) {
+        message = WsMessages.ERROR.INVALID_TOKEN;
+      } else {
+        message = WsMessages.ERROR.UNAUTHORIZED;
       }
 
-      client.emit('error', { message: 'Invalid token' });
+      client.emit('error', { message });
       client.disconnect();
     }
-  }
-
-  private getUserId(client: Socket): string | undefined {
-    return client?.data?.user?.email as string;
   }
 
   private getToken(client: Socket): string | undefined {
@@ -123,7 +140,7 @@ export class GenericWsGateway
 
     if (this.connectionCount[ip] > 5) {
       this.logger.log(`Too many connections from ${ip}`);
-      client.emit('error', { message: 'Too many connections.' });
+      client.emit('error', { message: WsMessages.ERROR.TOO_MANY_CONNECTIONS });
       client.disconnect();
       return;
     }

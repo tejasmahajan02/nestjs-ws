@@ -28,10 +28,13 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.0.11",
     "@nestjs/websockets": "^11.0.11",
+    "@socket.io/redis-adapter": "^8.3.0",
     "dotenv": "^16.4.7",
+    "redis": "^4.7.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "typeorm": "^0.3.21"
   },
   "devDependencies": {

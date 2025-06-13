@@ -1,12 +1,9 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JsonWebTokenError, JwtService, TokenExpiredError } from '@nestjs/jwt';
 import { WsException } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
+import { WsMessages } from '../constants/ws.messages';
 
 @Injectable()
 export class WsAuthGuard implements CanActivate {
@@ -17,11 +14,9 @@ export class WsAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const client = context.switchToWs().getClient();
-    const token = this.getToken(client); // Get token from client
 
-    if (!token) {
-      throw new WsException('Authentication token missing');
-    }
+    const token = this.getToken(client); // Get token from client
+    if (!token) throw new WsException(WsMessages.ERROR.MISSING_TOKEN);
 
     try {
       const payload = await this.jwtService.verifyAsync(token, {
@@ -32,11 +27,16 @@ export class WsAuthGuard implements CanActivate {
       client.data.user = payload;
       return true;
     } catch (error) {
-      if (error.name === 'TokenExpiredError') {
-        throw new WsException('Authentication token expired');
+      let message: string;
+      if (error instanceof TokenExpiredError) {
+        message = WsMessages.ERROR.EXPIRED_TOKEN;
+      } else if (error instanceof JsonWebTokenError) {
+        message = WsMessages.ERROR.INVALID_TOKEN;
+      } else {
+        message = WsMessages.ERROR.UNAUTHORIZED;
       }
 
-      throw new WsException('Invalid token');
+      throw new WsException(WsMessages.ERROR.EXPIRED_TOKEN);
     }
   }
 
