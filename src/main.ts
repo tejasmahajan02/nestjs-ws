@@ -2,11 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
 import { WsExceptionFilter } from './common/gateway/generic-ws/filters/ws-exception.filter';
+import { corsOptions } from './config/cors-options.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
-  app.enableCors({ credentials: true, origin: '*' });
+
+  app.enableCors(corsOptions);
 
   app.useGlobalFilters(new WsExceptionFilter());
 

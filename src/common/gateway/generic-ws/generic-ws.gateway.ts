@@ -1,29 +1,23 @@
-import { Logger, UseFilters, UseGuards } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JsonWebTokenError, JwtService, TokenExpiredError } from '@nestjs/jwt';
+import { Logger, UseGuards } from '@nestjs/common';
 import {
   ConnectedSocket,
-  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
   WsException,
-  WsResponse,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { WsAuthGuard } from './guards/ws-auth.guard';
-import { WsExceptionFilter } from './filters/ws-exception.filter';
 import { WsMessages } from './constants/ws.messages';
-import { Observable, from, map } from 'rxjs';
+import { getUserId, handleWsErrorAndDisconnect } from './utils/helpers.util';
+import { corsOptions } from 'src/config/cors-options.config';
+import { WsAuthService } from './services/ws-auth.service';
 
 @UseGuards(WsAuthGuard)
 @WebSocketGateway({
-  cors: {
-    origin: '*',
-    credentials: true,
-  },
+  cors: corsOptions,
 })
 export class GenericWsGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -32,10 +26,7 @@ export class GenericWsGateway
   private readonly logger = new Logger(GenericWsGateway.name);
   private connectionCount: Record<string, number> = {};
 
-  constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService,
-  ) {}
+  constructor(private readonly wsAuthService: WsAuthService) {}
 
   async handleConnection(client: Socket) {
     const clientId = client.id;
@@ -49,7 +40,7 @@ export class GenericWsGateway
     if (!isAllowed || !client.connected) return; // Stop execution if disconnected
 
     // Join a room based on user ID
-    const userId = this.getUserId(client);
+    const userId = getUserId(client);
     if (!userId) {
       client.disconnect(); // Ensure the client is disconnected if no user ID
       return;
@@ -70,67 +61,22 @@ export class GenericWsGateway
 
   @SubscribeMessage('ping')
   handlePing(@ConnectedSocket() client: Socket) {
-    client.emit('pong', { message: 'PONG' });
-  }
-
-  @SubscribeMessage('events')
-  findAll(@MessageBody() data: any): Observable<WsResponse<number>> {
-    return from([1, 2, 3]).pipe(
-      map((item) => ({ event: 'events', data: item })),
-    );
-  }
-
-  @SubscribeMessage('identity')
-  async identity(@MessageBody() data: number): Promise<number> {
-    return data;
-  }
-
-  private getUserId(client: Socket): string | undefined {
-    return client?.data?.user?.email as string;
+    client.emit('pong', { message: 'pong' });
   }
 
   // Authentication
   private async verifyUser(client: Socket): Promise<boolean | undefined> {
     try {
-      const token = this.getToken(client);
+      const token = this.wsAuthService.getToken(client);
       if (!token) throw new WsException(WsMessages.ERROR.MISSING_TOKEN);
 
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
-
-      // Attach user data to the client object for later use
+      const payload = await this.wsAuthService.verifyToken(token);
       client.data.user = payload;
+
       return true;
     } catch (error) {
-      let message: string;
-      if (error instanceof WsException) {
-        message = error.getError().toString();
-      } else if (error instanceof TokenExpiredError) {
-        message = WsMessages.ERROR.EXPIRED_TOKEN;
-      } else if (error instanceof JsonWebTokenError) {
-        message = WsMessages.ERROR.INVALID_TOKEN;
-      } else {
-        message = WsMessages.ERROR.UNAUTHORIZED;
-      }
-
-      client.emit('error', { message });
-      client.disconnect();
+      handleWsErrorAndDisconnect(client, error);
     }
-  }
-
-  private getToken(client: Socket): string | undefined {
-    const token =
-      (client.handshake.query.token as string) ||
-      client.handshake.auth?.token ||
-      this.extractTokenFromHeader(client);
-    return token;
-  }
-
-  private extractTokenFromHeader(client: Socket): string | undefined {
-    const [type, token] =
-      client.handshake.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
   }
 
   // Rate limiting
@@ -140,8 +86,7 @@ export class GenericWsGateway
 
     if (this.connectionCount[ip] > 5) {
       this.logger.log(`Too many connections from ${ip}`);
-      client.emit('error', { message: WsMessages.ERROR.TOO_MANY_CONNECTIONS });
-      client.disconnect();
+      handleWsErrorAndDisconnect(client, WsMessages.ERROR.TOO_MANY_CONNECTIONS);
       return;
     }
 

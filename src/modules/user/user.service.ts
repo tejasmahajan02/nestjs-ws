@@ -12,6 +12,7 @@ export class UserService {
   ) {}
 
   async create(createUserDto: CreateUserDto) {
+    createUserDto.id = Math.floor(Math.random() * 1_000)
     return {
       access_token: await this.jwtService.signAsync(createUserDto, {
         secret: this.configService.get<string>('JWT_SECRET'),

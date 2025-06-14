@@ -9,5 +9,7 @@ export class WsExceptionFilter implements ExceptionFilter {
     client.emit('error', {
       message: exception.getError(),
     });
+
+    
   }
 }
