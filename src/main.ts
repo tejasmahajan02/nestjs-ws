@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
 import { WsExceptionFilter } from './common/gateway/generic-ws/filters/ws-exception.filter';
 import { corsOptions } from './config/cors-options.config';
+import { RedisIoAdapter } from './common/gateway/generic-ws/adapters/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -12,9 +13,9 @@ async function bootstrap() {
   app.useGlobalFilters(new WsExceptionFilter());
 
   // Uncomment these lines to use the Redis adapter:
-  // const redisIoAdapter = new RedisIoAdapter(app);
-  // await redisIoAdapter.connectToRedis();
-  // app.useWebSocketAdapter(redisIoAdapter);
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   const port = process.env.NODE_PORT || 3000;
   await app.listen(port);

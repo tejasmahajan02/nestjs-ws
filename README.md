@@ -68,6 +68,13 @@ $ npm install -g mau
 $ mau deploy
 ```
 
+You can log Redis-level traffic by enabling debugging:
+
+```bash
+DEBUG=socket.io:* nest start
+```
+
+
 With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
 ## Resources
