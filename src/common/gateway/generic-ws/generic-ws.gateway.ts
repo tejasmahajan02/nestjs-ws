@@ -50,8 +50,13 @@ export class GenericWsGateway
     this.logger.log(`Client connected: ${clientId} and joined room: ${userId}`);
   }
 
-  handleDisconnect(client: Socket) {
-    this.logger.log(`Client disconnected: ${client.id}`);
+  // handleDisconnect(client: Socket) {
+  //   this.logger.log(`Client disconnected: ${client.id}`);
+  // }
+
+  async handleDisconnect(client: Socket) {
+    const ip = client.handshake.address;
+    this.connectionCount[ip] = Math.max(0, (this.connectionCount[ip] || 1) - 1);
   }
 
   // Emit updates only to a specific user's room
@@ -80,19 +85,33 @@ export class GenericWsGateway
   }
 
   // Rate limiting
-  private handleConnectionsLimit(client: Socket): boolean | undefined {
+  // private handleConnectionsLimit(client: Socket): boolean | undefined {
+  //   const ip = client.handshake.address;
+  //   this.connectionCount[ip] = (this.connectionCount[ip] || 0) + 1;
+
+  //   if (this.connectionCount[ip] > 5) {
+  //     this.logger.log(`Too many connections from ${ip}`);
+  //     handleWsErrorAndDisconnect(client, WsMessages.ERROR.TOO_MANY_CONNECTIONS);
+  //     return;
+  //   }
+
+  //   client.on('disconnect', () => {
+  //     this.connectionCount[ip] = Math.max(0, this.connectionCount[ip] - 1);
+  //   });
+
+  //   return true;
+  // }
+
+  // Rate limiting
+  private handleConnectionsLimit(client: Socket): boolean {
     const ip = client.handshake.address;
     this.connectionCount[ip] = (this.connectionCount[ip] || 0) + 1;
 
-    if (this.connectionCount[ip] > 5) {
+    if (this.connectionCount[ip] > WS_MAX_CONNECTIONS_PER_USER) {
       this.logger.log(`Too many connections from ${ip}`);
       handleWsErrorAndDisconnect(client, WsMessages.ERROR.TOO_MANY_CONNECTIONS);
-      return;
+      return false;
     }
-
-    client.on('disconnect', () => {
-      this.connectionCount[ip] = Math.max(0, this.connectionCount[ip] - 1);
-    });
 
     return true;
   }
